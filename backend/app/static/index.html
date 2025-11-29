@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Poker Coach MVP — Terminal</title>
+</head>
+<body>
+  <pre id="terminal" aria-live="polite"></pre>
+
+  <div id="controls">
+    <button id="google-login">Sign in with Google</button>
+    <button id="logout">Log out</button>
+    <button data-action="fold">Fold (1)</button>
+    <button data-action="check">Check (2)</button>
+    <button data-action="call">Call (3)</button>
+    <button data-action="bet">Bet/Raise (4)</button>
+    <label for="bet-amount">Amount:</label>
+    <input id="bet-amount" type="number" min="0" step="1" value="4" />
+    <button id="next-hand" style="display:none;">Next Hand</button>
+  </div>
+
+  <script src="/static/js/app.js" type="module"></script>
+</body>
+</html>
