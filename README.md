@@ -29,6 +29,3 @@ Heads-up poker trainer with a low-fi terminal-style web UI, FastAPI backend, opt
 - Coaching: Uses OpenAI if API key + network; otherwise falls back to “disabled” messaging. Decision-state only, no future info.
 - Persistence: in-memory by default; optional async Postgres tables (users, sessions, hands, actions, facts) when `POKER_DB_URL` is set.
 - PokerKit: Optional hand eval (requires Py 3.11+); falls back to simple tie-breaker if not installed.
-
-## Keep Private
-- Do not commit `.env`, secrets, or `.venv/`. `.gitignore` covers `.env`, `.venv/`, `__pycache__/`, `.DS_Store`.
