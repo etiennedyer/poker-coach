@@ -264,10 +264,11 @@ async def table_socket(websocket: WebSocket, token: str = Query(...)) -> None:
 
             decision_state = table.snapshot()
             decision_facts = build_fact_block(decision_state)
+            coaching_state = decision_state
+            coaching_facts = decision_facts
 
             events = table.player_action(action=action, amount=amount)
-            latest_state = None
-            fact_payload = None
+            has_error = False
             for event in events:
                 await websocket.send_json(event)
                 if event.get("type") == "state_update":
@@ -278,9 +279,9 @@ async def table_socket(websocket: WebSocket, token: str = Query(...)) -> None:
                 if event.get("type") == "hand_summary":
                     # Auto-start next hand after summary.
                     await websocket.send_json({**event, "can_start_next_hand": True})
-            coaching_state = latest_state or decision_state
-            coaching_facts = fact_payload or decision_facts
-            if coaching_state:
+                if event.get("type") == "error":
+                    has_error = True
+            if coaching_state and not has_error:
                 coaching = await coaching_service.get_coaching(coaching_state, coaching_facts, {"action": action, "amount": amount})
                 await websocket.send_json(coaching)
     except WebSocketDisconnect:

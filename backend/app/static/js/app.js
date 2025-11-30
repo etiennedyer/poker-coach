@@ -23,11 +23,11 @@ const THINKING_FACE = [
   "  \\   ___   /",
   "   \\___@___/",
 ];
-const SEAT_WIDTH = 3;
+const SEAT_WIDTH = 8;
 function formatSeat(label) {
   const content = (label || "").trim();
   if (!content || content === "---") {
-    const inner = "---".padEnd(SEAT_WIDTH - 2, " ");
+    const inner = " --- ";
     return `(${inner})`;
   }
   const inner = content.slice(0, SEAT_WIDTH - 2).padEnd(SEAT_WIDTH - 2, " ");
@@ -106,21 +106,19 @@ function buildSixMaxTableLines(state) {
     "            /                                      \\",
     "           /                                        \\",
     "          /                                          \\",
-    `      ${seats.CO}                                     ${seats.SB}`,
-    `       ${actions.CO}      ${boardRow}        ${actions.SB}`,
-    `       ${stacks.CO}                                     ${stacks.SB}`,
+    `       ${seats.CO}                                    ${seats.SB}`,
+    `       ${actions.CO}      ${boardRow}     ${actions.SB}`,
+    `       ${stacks.CO}                                    ${stacks.SB}`,
     `        |                 POT: ${potLabel}                 |`,
     "        |                                             |",
-    `        |              TO CALL: ${toCallLabel}              |`,
-    "        |                                             |",
-    `      ${seats.MP}                                        ${seats.BB}`,
-    `       ${actions.MP}                                       ${actions.BB}`,
-    `       ${stacks.MP}                                       ${stacks.BB}`,
-    "         \\                                          /",
-    "          \\                                        /",
-    utgLine,
-    `${utgIndent}${centerText(actions.UTG, utgContentWidth)}`,
-    `${utgIndent}${centerText(stacks.UTG, utgContentWidth)}`,
+    `       ${seats.MP}            TO CALL: ${toCallLabel}        ${seats.BB}`,
+    `       ${actions.MP}                                   ${actions.BB}`,
+    `       ${stacks.MP}                                   ${stacks.BB}`,
+    "         \\                                           /",
+    "          \\                                         /",
+`           \\_______________${seats.UTG}________________/ `,
+    `                           ${actions.UTG}`,
+    `                           ${stacks.UTG}`,
   ];
 }
 let lastTableLines = buildSixMaxTableLines();
@@ -128,7 +126,9 @@ let lastFaceLines = TABLE_FACE;
 let lastHandBlock = null;
 let infoLines = [];
 let coachingText = "Play a hand to get feedback!";
+let lastInfoWasError = false;
 let hasActed = false;
+let awaitingCoaching = false;
 let coachingSpinner = null;
 let coachingSpinnerStep = 1;
 const nextHandBtn = document.getElementById("next-hand");
@@ -358,11 +358,12 @@ function renderScreen() {
 
 function setInfo(line) {
   infoLines = line ? [line] : [];
+  lastInfoWasError = !!line && line.toLowerCase().startsWith("error");
   renderScreen();
 }
 
 function setCoaching(line) {
-  const isLoading = !line || line === "evaluation loading..." || line === "evaluation loading";
+  const isLoading = line === undefined || line === null || line === "evaluation loading..." || line === "evaluation loading";
   if (isLoading) {
     if (!coachingSpinner) {
       coachingSpinnerStep = 1;
@@ -474,26 +475,33 @@ function handleServerMessage(msg) {
 
   switch (msg.type) {
     case "session_joined":
-    case "state_update":
       renderTable(msg.state);
-      setCoaching(hasActed ? "evaluation loading..." : "Play a hand to get feedback!");
+      break;
+    case "state_update":
+      if (lastInfoWasError) setInfo("");
+      renderTable(msg.state);
+      // Keep existing coaching message unless we're explicitly awaiting new advice.
       break;
     case "hand_summary":
       setInfo(`Hand over (${msg.reason}) — winner: ${msg.winner}`);
       renderTable(msg.state || msg);
       // Reveal bot hand on showdown if available.
       if (msg.bot_hand) {
-        setInfo(`~~{ Bot hand: ${formatCardSymbols(msg.bot_hand)} }~~`);
+        setInfo(`{ Bot hand: ${formatCardSymbols(msg.bot_hand)} }`);
       }
       // Show next hand button if server allows.
       if (msg.can_start_next_hand) {
         nextHandBtn.style.display = "inline-block";
       }
+      // Keep the spinner running until coaching advice arrives if we're waiting for it.
       hasActed = false;
-      setCoaching("Play a hand to get feedback!");
+      if (awaitingCoaching) {
+        setCoaching("evaluation loading...");
+      }
       break;
     case "error":
       setInfo(`Error: ${msg.message || "Server error"}`);
+      awaitingCoaching = false;
       break;
     case "facts_update":
       // Ignore facts in UI.
@@ -503,6 +511,7 @@ function handleServerMessage(msg) {
       break;
     case "coaching_update":
       if (msg.coaching) setCoaching(`${msg.coaching.assessment || ""}\n${msg.coaching.advice || ""}`);
+      awaitingCoaching = false;
       break;
     default:
       // Ignore unknown messages to avoid clutter.
@@ -583,8 +592,16 @@ function connectWs() {
 
 function sendAction(action, amount = null) {
   const payload = { action, amount, ts: new Date().toISOString() };
-  hasActed = true;
-  setCoaching("evaluation loading...");
+  if (action === "next_hand") {
+    hasActed = false;
+    awaitingCoaching = false;
+    setCoaching("Play a hand to get feedback!");
+    setInfo("");
+  } else {
+    hasActed = true;
+    awaitingCoaching = true;
+    setCoaching("evaluation loading...");
+  }
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify(payload));
   }
