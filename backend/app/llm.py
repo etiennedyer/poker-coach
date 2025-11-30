@@ -56,7 +56,7 @@ class CoachingService:
 
     def _build_prompt(self, state: Dict[str, Any], facts: Dict[str, Any], action: Dict[str, Any]) -> list:
         system = (
-            "You are a concise poker coach. Evaluate the player's last decision with ONLY the information available at that moment. "
+            "You are a concise poker coach. Evaluate the my last decision with ONLY the information available at that moment. "
             "Do NOT speculate about future streets or unseen cards. Return JSON with keys: "
             "assessment (short), advice (actionable). Do NOT include suggested_next_action."
         )

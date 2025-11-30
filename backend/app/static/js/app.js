@@ -12,7 +12,7 @@ const PLACEHOLDER_TABLE = [
   "          /                                              \\",
   "        ( CO )                                          ( SB )",
   "      [----]       [??] [??] [??]  [??] [??]            [----]",
-  "        |                POT: --                         |",
+  "        |                POT: --                          |",
   "        |                                                 |",
   "      ( MP )                                          ( BB )",
   "      [----]                                          [----]",
@@ -22,10 +22,6 @@ const PLACEHOLDER_TABLE = [
   "                              [----]",
 ].join("\n");
 
-let lastTableBlock = PLACEHOLDER_TABLE;
-let lastHandBlock = null;
-let infoLines = [];
-let coachingText = "evaluation loading...";
 const COACH_FACE = [
   "              ______",
   "          \\___/______\\___/",
@@ -34,8 +30,22 @@ const COACH_FACE = [
   "           \\    ___    /",
   "            \\_______/",
 ].join("\n");
+const TABLE_FACE = [
+  "      _______",
+  "\\___/_coach_\\___/",
+  "  @/ 0   0   \\@",
+  "  |   ..     |",
+  "  \\   ___   /",
+  "   \\_______/",
+];
+
+let lastTableLines = PLACEHOLDER_TABLE.split("\n");
+let lastFaceLines = TABLE_FACE;
+let lastHandBlock = null;
+let infoLines = [];
+let coachingText = "evaluation loading...";
 const nextHandBtn = document.getElementById("next-hand");
-const HEADER = [
+const HEADER_FULL = [
   "    ____        __                ______                 __  ",
   "   / __ \\____  / /_____  _____   / ____/___  ____ ______/ /_ ",
   "  / /_/ / __ \\/ //_/ _ \\/ ___/  / /   / __ \\/ __ `/ ___/ __ \\",
@@ -43,7 +53,26 @@ const HEADER = [
   "/_/    \\____/_/|_|\\___/_/      \\____/\\____/\\__,_/\\___/_/ /_/ ",
   "                                                             ",
   "                                                             ",
-].join("\n");
+];
+const HEADER_FULL_WIDTH = Math.max(...HEADER_FULL.map((l) => l.length));
+function splitHeader(lines) {
+  const width = Math.max(...lines.map((l) => l.length));
+  const gapCols = [];
+  for (let col = 0; col < width; col++) {
+    if (lines.every((ln) => (ln[col] || " ") === " ")) gapCols.push(col);
+  }
+  const splitCol = gapCols.length ? gapCols[Math.floor(gapCols.length / 2)] + 1 : Math.floor(width / 2);
+  const rtrim = (s) => s.replace(/\s+$/, "");
+  const left = lines.map((ln) => rtrim(ln.slice(0, splitCol))).filter((ln, idx, arr) => idx < arr.length - 2 || ln.trim());
+  const right = lines.map((ln) => rtrim(ln.slice(splitCol))).filter((ln, idx, arr) => idx < arr.length - 2 || ln.trim());
+  const leftWidth = Math.max(...left.map((l) => l.length));
+  const rightWidth = Math.max(...right.map((l) => l.length));
+  return { left, right, leftWidth, rightWidth, stackWidth: Math.max(leftWidth, rightWidth) };
+}
+const HEADER_SPLIT = splitHeader(HEADER_FULL);
+const HEADER_POKER = HEADER_SPLIT.left;
+const HEADER_COACH = HEADER_SPLIT.right;
+const HEADER_STACK_WIDTH = HEADER_SPLIT.stackWidth;
 
 const wsBase = location.origin.replace(/^http/, "ws");
 
@@ -118,6 +147,15 @@ function renderCards(cards, maxCount = 5) {
   return lines.map((l) => l.trimEnd()).join("\n");
 }
 
+function dedent(block) {
+  const lines = block.split("\n");
+  const indents = lines
+    .filter((l) => l.trim().length > 0)
+    .map((l) => l.match(/^ */)?.[0].length || 0);
+  const minIndent = indents.length ? Math.min(...indents) : 0;
+  return lines.map((l) => l.slice(minIndent)).join("\n");
+}
+
 function sideBySide(leftBlock, rightBlock, gap = 2) {
   const left = leftBlock.split("\n");
   const right = rightBlock.split("\n");
@@ -132,9 +170,53 @@ function sideBySide(leftBlock, rightBlock, gap = 2) {
   return lines.join("\n");
 }
 
+function shrinkLineToWidth(line, maxWidth) {
+  if (!line || line.length <= maxWidth) return line;
+  let out = line;
+  const trimRuns = (regex) => {
+    while (out.length > maxWidth) {
+      const runs = [...out.matchAll(regex)];
+      if (!runs.length) break;
+      runs.sort((a, b) => b[0].length - a[0].length);
+      const target = runs[0];
+      if (!target || target[0].length <= 1) break;
+      const cutIdx = target.index + Math.floor(target[0].length / 2);
+      out = out.slice(0, cutIdx) + out.slice(cutIdx + 1);
+    }
+  };
+  // Prefer shaving underscores (table edges) before collapsing space gaps.
+  trimRuns(/_+/g);
+  trimRuns(/ {2,}/g);
+  return out.length > maxWidth ? out.slice(0, maxWidth) : out;
+}
+
+function shrinkTableLines(lines, maxWidth) {
+  return lines.map((ln) => shrinkLineToWidth(ln, maxWidth));
+}
+
+function buildTableLayout(tableLines, faceLines) {
+  const table = tableLines && tableLines.length ? tableLines : PLACEHOLDER_TABLE.split("\n");
+  const faces = faceLines || [];
+  const totalCols = maxCols();
+  const faceWidth = faces.length ? Math.max(...faces.map((l) => l.length)) : 0;
+  const gap = faces.length ? 2 : 0;
+  const maxTableWidth = Math.max(30, totalCols - faceWidth - gap);
+  const compactTableLines = shrinkTableLines(table, maxTableWidth);
+  const facePadTop = Math.max(0, compactTableLines.length - faces.length);
+  const paddedFaceLines = Array(facePadTop).fill("").concat(faces);
+  return sideBySide(compactTableLines.join("\n"), paddedFaceLines.join("\n"), gap || 2);
+}
+
 function renderScreen() {
   const sections = [];
-  sections.push(HEADER);
+  const cols = maxCols();
+  const headerBlock =
+    cols >= HEADER_FULL_WIDTH
+      ? HEADER_FULL.join("\n")
+      : cols >= HEADER_STACK_WIDTH
+      ? [...HEADER_POKER, ...HEADER_COACH].join("\n")
+      : "Poker\nCoach";
+  sections.push(headerBlock);
   const handBlock = `Your hand:\n${lastHandBlock || renderCards(["??", "??"], 2)}`;
   const totalCols = maxCols();
   const handWidth = handBlock.split("\n").reduce((m, l) => Math.max(m, l.length), 0);
@@ -143,7 +225,8 @@ function renderScreen() {
   const coachBlock = buildCoachSection(coachingText, coachWidth);
   const combined = sideBySide(handBlock, coachBlock, gap);
 
-  sections.push(lastTableBlock || PLACEHOLDER_TABLE);
+  const tableBlock = dedent(buildTableLayout(lastTableLines, lastFaceLines));
+  sections.push(tableBlock);
   if (infoLines.length) sections.push(infoLines.join("\n"));
   sections.push(combined);
   const text = sections.join("\n\n");
@@ -222,18 +305,16 @@ function renderTable(state) {
   ];
 
   const faceLines = [
-    "              _______",
-    "         \\___/_coach_\\___/",
-    "           @/ 0   0   \\@",
-    "           |   ..     |",
-    "           \\   ___   /",
-    "            \\_______/",
+    "     _______",
+    "\\___/_coach_\\___/",
+    "  @/ 0   0   \\@",
+    "  |   ..     |",
+    "  \\   ___   /",
+    "   \\_______/",
   ];
-
-  const handVisual = renderCards(state.hero_hand || [], 2);
-  const tableBlock = sideBySide(tableLines.join("\n"), faceLines.join("\n"), 4);
-  lastTableBlock = tableBlock;
-  lastHandBlock = handVisual;
+  lastTableLines = tableLines;
+  lastFaceLines = faceLines;
+  lastHandBlock = renderCards(state.hero_hand || [], 2);
   renderScreen();
 }
 
@@ -291,12 +372,10 @@ async function loadSession() {
     const me = await fetchJson("/auth/me");
     user = me;
     googleLoginBtn.disabled = true;
-    setInfo(`Signed in as: ${me.email || me.name || me.user_id}`);
     await fetchWsToken();
   } catch {
     user = null;
     googleLoginBtn.disabled = false;
-    setInfo("Not signed in. Use Sign in with Google or dev login callback.");
   }
 }
 
@@ -316,7 +395,6 @@ function connectWs() {
     return;
   }
   const url = `${wsBase}/ws/table?token=${encodeURIComponent(wsToken)}`;
-  setInfo("Connecting to table...");
   ws = new WebSocket(url);
   ws.onopen = () => {};
   ws.onclose = () => {
@@ -353,7 +431,6 @@ function wireEvents() {
     wsToken = null;
     if (ws) ws.close();
     await loadSession();
-    setInfo("Logged out.");
   });
 
   document.querySelectorAll("[data-action]").forEach((btn) => {
@@ -377,7 +454,7 @@ function wireEvents() {
 function bootstrap() {
   wireEvents();
   loadSession();
-  setInfo("Tip: click an action to start. Dev mode allows login without Google secrets.");
+  renderScreen();
   window.addEventListener("resize", renderScreen);
 }
 

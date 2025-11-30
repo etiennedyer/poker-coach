@@ -89,6 +89,14 @@ async def index() -> FileResponse:
     return FileResponse(INDEX_FILE)
 
 
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon() -> FileResponse:
+    ico_path = STATIC_DIR / "favicon.ico"
+    if ico_path.exists():
+        return FileResponse(ico_path)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @app.get("/health")
 async def health() -> dict:
     return {"status": "ok", "app": settings.app_name}
