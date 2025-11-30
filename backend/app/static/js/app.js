@@ -5,33 +5,9 @@ let ws;
 let wsToken = null;
 let user = null;
 let reconnectTimer = null;
-const PLACEHOLDER_TABLE = [
-  "             _________________( BTN )_________________",
-  "            /                  [----]                 \\",
-  "           /                                            \\",
-  "          /                                              \\",
-  "        ( CO )                                          ( SB )",
-  "      [----]       [??] [??] [??]  [??] [??]            [----]",
-  "        |                POT: --                          |",
-  "        |                                                 |",
-  "      ( MP )                                          ( BB )",
-  "      [----]                                          [----]",
-  "         \\                                               /",
-  "          \\                                             /",
-  "           \\_________________( UTG )___________________/",
-  "                              [----]",
-].join("\n");
 
-const COACH_FACE = [
-  "              ______",
-  "          \\___/______\\___/",
-  "          @/  0   0   \\@",
-  "          |     ..     |",
-  "           \\    ___    /",
-  "            \\_______/",
-].join("\n");
 const TABLE_FACE = [
-  "      _______",
+  "     _______",
   "\\___/_coach_\\___/",
   "  @/ 0   0   \\@",
   "  |   ..     |",
@@ -39,11 +15,122 @@ const TABLE_FACE = [
   "   \\_______/",
 ];
 
-let lastTableLines = PLACEHOLDER_TABLE.split("\n");
+const THINKING_FACE = [
+  "     _______",
+  "\\___/_coach_\\___/",
+  "  @/ °   0   \\@",
+  "  |   ..     |",
+  "  \\   ___   /",
+  "   \\___@___/",
+];
+const SEAT_WIDTH = 3;
+function formatSeat(label) {
+  const content = (label || "").trim();
+  if (!content || content === "---") {
+    const inner = "---".padEnd(SEAT_WIDTH - 2, " ");
+    return `(${inner})`;
+  }
+  const inner = content.slice(0, SEAT_WIDTH - 2).padEnd(SEAT_WIDTH - 2, " ");
+  return `(${inner})`;
+}
+
+function formatAction(label, width = SEAT_WIDTH - 2) {
+  const target = (label || "---").trim() || "---";
+  const clipped = target.slice(0, width);
+  const padTotal = Math.max(0, width - clipped.length);
+  const leftPad = Math.floor(padTotal / 2);
+  const rightPad = padTotal - leftPad;
+  const inner = `${" ".repeat(leftPad)}${clipped}${" ".repeat(rightPad)}`;
+  return `[${inner}]`;
+}
+
+function formatStack(amount, width = SEAT_WIDTH - 2) {
+  if (amount === null || amount === undefined) return formatAction("---", width);
+  const raw = `$${amount}`;
+  return formatAction(raw, width);
+}
+
+function centerText(text, width) {
+  const clipped = (text || "").slice(0, width);
+  const padTotal = Math.max(0, width - clipped.length);
+  const leftPad = Math.floor(padTotal / 2);
+  const rightPad = padTotal - leftPad;
+  return `${" ".repeat(leftPad)}${clipped}${" ".repeat(rightPad)}`;
+}
+
+function buildSixMaxTableLines(state) {
+  const pot = state?.pot ?? "--";
+  const heroBet = state?.hero_bet ?? 0;
+  const botBet = state?.bot_bet ?? 0;
+  const heroStack = state?.hero_stack;
+  const botStack = state?.bot_stack;
+  const currentBet = state?.current_bet ?? Math.max(heroBet, botBet);
+  const toCall = Math.max(0, currentBet - (heroBet || 0));
+  const b = [
+    cardSym(state?.board?.[0]),
+    cardSym(state?.board?.[1]),
+    cardSym(state?.board?.[2]),
+    cardSym(state?.board?.[3]),
+    cardSym(state?.board?.[4]),
+  ];
+  const seats = {
+    BTN: formatSeat("---"),
+    CO: formatSeat("---"),
+    SB: formatSeat("---"),
+    MP: formatSeat("---"),
+    BB: formatSeat("BB BOT"),
+    UTG: formatSeat("BTN/SB YOU"),
+  };
+  const actions = {
+    CO: formatAction("---"),
+    SB: formatAction("---"),
+    MP: formatAction("---"),
+    BB: formatAction(botBet ? `BET ${botBet}` : "CHECK"),
+    UTG: formatAction(heroBet ? `BET ${heroBet}` : "CHECK"),
+  };
+  const stacks = {
+    CO: formatStack(null),
+    SB: formatStack(null),
+    MP: formatStack(null),
+    BB: formatStack(botStack),
+    UTG: formatStack(heroStack),
+  };
+  const potLabel = `${pot}`.padEnd(6, " ");
+  const toCallLabel = `${toCall}`.padEnd(6, " ");
+  const boardRow = `[${b[0]}] [${b[1]}] [${b[2]}]  [${b[3]}] [${b[4]}]`;
+  const utgLine = `           \\_________________${seats.UTG}__________________/ `;
+  const utgIndent = utgLine.match(/^ */)?.[0] || "";
+  const utgContentWidth = utgLine.length - utgIndent.length;
+  return [
+    `             _______________${seats.BTN}_______________`,
+    "            /                                      \\",
+    "           /                                        \\",
+    "          /                                          \\",
+    `      ${seats.CO}                                     ${seats.SB}`,
+    `       ${actions.CO}      ${boardRow}        ${actions.SB}`,
+    `       ${stacks.CO}                                     ${stacks.SB}`,
+    `        |                 POT: ${potLabel}                 |`,
+    "        |                                             |",
+    `        |              TO CALL: ${toCallLabel}              |`,
+    "        |                                             |",
+    `      ${seats.MP}                                        ${seats.BB}`,
+    `       ${actions.MP}                                       ${actions.BB}`,
+    `       ${stacks.MP}                                       ${stacks.BB}`,
+    "         \\                                          /",
+    "          \\                                        /",
+    utgLine,
+    `${utgIndent}${centerText(actions.UTG, utgContentWidth)}`,
+    `${utgIndent}${centerText(stacks.UTG, utgContentWidth)}`,
+  ];
+}
+let lastTableLines = buildSixMaxTableLines();
 let lastFaceLines = TABLE_FACE;
 let lastHandBlock = null;
 let infoLines = [];
-let coachingText = "evaluation loading...";
+let coachingText = "Play a hand to get feedback!";
+let hasActed = false;
+let coachingSpinner = null;
+let coachingSpinnerStep = 1;
 const nextHandBtn = document.getElementById("next-hand");
 const HEADER_FULL = [
   "    ____        __                ______                 __  ",
@@ -55,6 +142,8 @@ const HEADER_FULL = [
   "                                                             ",
 ];
 const HEADER_FULL_WIDTH = Math.max(...HEADER_FULL.map((l) => l.length));
+const COACH_TITLE = "== COACH'S CORNER ==";
+const COACH_MAX_WIDTH = "============== COACH'S CORNER ===============".length;
 function splitHeader(lines) {
   const width = Math.max(...lines.map((l) => l.length));
   const gapCols = [];
@@ -114,6 +203,11 @@ function cardLines(code) {
   return [" ___ ", `|${face.padEnd(3, " ")}|`, "|___|"];
 }
 
+function cardSym(c) {
+  if (!c || c.length !== 2) return "??";
+  return formatCardSymbols([c]);
+}
+
 function formatCardSymbols(cards = []) {
   return cards
     .map((code) => {
@@ -170,6 +264,20 @@ function sideBySide(leftBlock, rightBlock, gap = 2) {
   return lines.join("\n");
 }
 
+function centerBlock(block, widthOverride) {
+  const lines = block.split("\n");
+  const targetWidth = widthOverride || maxCols();
+  const blockWidth = Math.max(...lines.map((l) => l.length), 0);
+  const pad = Math.max(0, Math.floor((targetWidth - blockWidth) / 2));
+  if (!pad) return block;
+  const padStr = " ".repeat(pad);
+  return lines.map((ln) => padStr + ln).join("\n");
+}
+
+function blockWidth(block) {
+  return block.split("\n").reduce((m, ln) => Math.max(m, ln.length), 0);
+}
+
 function shrinkLineToWidth(line, maxWidth) {
   if (!line || line.length <= maxWidth) return line;
   let out = line;
@@ -195,13 +303,16 @@ function shrinkTableLines(lines, maxWidth) {
 }
 
 function buildTableLayout(tableLines, faceLines) {
-  const table = tableLines && tableLines.length ? tableLines : PLACEHOLDER_TABLE.split("\n");
+  const table = tableLines && tableLines.length ? tableLines : buildSixMaxTableLines();
   const faces = faceLines || [];
   const totalCols = maxCols();
   const faceWidth = faces.length ? Math.max(...faces.map((l) => l.length)) : 0;
   const gap = faces.length ? 2 : 0;
   const maxTableWidth = Math.max(30, totalCols - faceWidth - gap);
   const compactTableLines = shrinkTableLines(table, maxTableWidth);
+  if (!faces.length) {
+    return compactTableLines.join("\n");
+  }
   const facePadTop = Math.max(0, compactTableLines.length - faces.length);
   const paddedFaceLines = Array(facePadTop).fill("").concat(faces);
   return sideBySide(compactTableLines.join("\n"), paddedFaceLines.join("\n"), gap || 2);
@@ -216,19 +327,30 @@ function renderScreen() {
       : cols >= HEADER_STACK_WIDTH
       ? [...HEADER_POKER, ...HEADER_COACH].join("\n")
       : "Poker\nCoach";
-  sections.push(headerBlock);
+  sections.push(centerBlock(headerBlock, cols));
   const handBlock = `Your hand:\n${lastHandBlock || renderCards(["??", "??"], 2)}`;
-  const totalCols = maxCols();
-  const handWidth = handBlock.split("\n").reduce((m, l) => Math.max(m, l.length), 0);
-  const gap = 4;
-  const coachWidth = Math.max(20, totalCols - handWidth - gap);
-  const coachBlock = buildCoachSection(coachingText, coachWidth);
-  const combined = sideBySide(handBlock, coachBlock, gap);
+  const isCollapsed = cols < HEADER_FULL_WIDTH;
+  const tableBlock = dedent(buildTableLayout(lastTableLines, isCollapsed ? [] : lastFaceLines));
+  const refWidth = Math.max(cols, blockWidth(tableBlock));
+  sections.push(isCollapsed ? tableBlock : centerBlock(tableBlock, cols));
+  if (infoLines.length) sections.push(centerBlock(infoLines.join("\n"), refWidth));
 
-  const tableBlock = dedent(buildTableLayout(lastTableLines, lastFaceLines));
-  sections.push(tableBlock);
-  if (infoLines.length) sections.push(infoLines.join("\n"));
-  sections.push(combined);
+  if (isCollapsed) {
+    const faceBlock =
+      lastFaceLines && lastFaceLines.length ? dedent(lastFaceLines.join("\n")) : "";
+    const midRow = centerBlock(sideBySide(handBlock, faceBlock, 4), cols);
+    sections.push(midRow);
+    const coachBlock = centerBlock(buildCoachSection(coachingText, cols), cols);
+    sections.push(coachBlock);
+  } else {
+    const totalCols = cols;
+    const handWidth = handBlock.split("\n").reduce((m, l) => Math.max(m, l.length), 0);
+    const gap = 4;
+    const coachWidth = Math.max(20, totalCols - handWidth - gap);
+    const coachBlock = buildCoachSection(coachingText, coachWidth);
+    const combined = sideBySide(handBlock, coachBlock, gap);
+    sections.push(centerBlock(combined, cols));
+  }
   const text = sections.join("\n\n");
   terminal.textContent = text;
   terminal.scrollTop = terminal.scrollHeight;
@@ -240,80 +362,106 @@ function setInfo(line) {
 }
 
 function setCoaching(line) {
-  coachingText = line || "evaluation loading...";
+  const isLoading = !line || line === "evaluation loading..." || line === "evaluation loading";
+  if (isLoading) {
+    if (!coachingSpinner) {
+      coachingSpinnerStep = 1;
+      coachingText = "evaluation loading.";
+      coachingSpinner = setInterval(() => {
+        coachingSpinnerStep = coachingSpinnerStep % 3 + 1; // cycles 1,2,3
+        coachingText = `evaluation loading${".".repeat(coachingSpinnerStep)}`;
+        renderScreen();
+      }, 450);
+    }
+    renderScreen();
+    return;
+  }
+  if (coachingSpinner) {
+    clearInterval(coachingSpinner);
+    coachingSpinner = null;
+  }
+  coachingText = line;
   renderScreen();
 }
 
-function buildBox(text, title, widthOverride) {
+function buildBox(text, title, widthOverride, leftPad = 2, alignCenter = false, rightPad = leftPad) {
   const body = text ? text.split("\n") : [""];
   const fullWidth = widthOverride || maxCols();
-  const width = Math.max(10, fullWidth - 4); // account for borders
-  const total = width + 4;
+  const minInner = Math.max(1, Math.min(10, fullWidth - 4));
+  let leftPadSpaces = Math.max(0, leftPad);
+  let rightPadSpaces = Math.max(0, rightPad);
+
+  if (alignCenter) {
+    const maxMargin = 6; // keep centered padding modest on narrow screens
+    const padBudget = Math.min(maxMargin, Math.max(0, fullWidth - (minInner + 4)));
+    leftPadSpaces = Math.floor(padBudget / 2);
+    rightPadSpaces = padBudget - leftPadSpaces;
+  } else {
+    let innerCandidate = fullWidth - leftPadSpaces - rightPadSpaces - 4;
+    if (innerCandidate < minInner) {
+      const padBudget = Math.max(0, fullWidth - (minInner + 4));
+      const totalPad = Math.max(1, leftPadSpaces + rightPadSpaces);
+      const leftShare = Math.floor((leftPadSpaces / totalPad) * padBudget);
+      leftPadSpaces = leftShare;
+      rightPadSpaces = padBudget - leftPadSpaces;
+    }
+  }
+
+  let innerWidth = Math.max(minInner, fullWidth - leftPadSpaces - rightPadSpaces - 4); // account for borders plus pad
+  let total = innerWidth + 4; // | + space + content + space + |
+  if (title.length > total) {
+    total = title.length;
+    innerWidth = Math.max(minInner, total - 4);
+  }
+  const overflow = leftPadSpaces + total + rightPadSpaces - fullWidth;
+  if (overflow > 0) {
+    const trimLeft = Math.min(leftPadSpaces, Math.ceil(overflow / 2));
+    const trimRight = Math.min(rightPadSpaces, overflow - trimLeft);
+    leftPadSpaces -= trimLeft;
+    rightPadSpaces -= trimRight;
+  }
+  const padWidth = Math.max(total, title.length);
+  const padLeft = Math.max(0, Math.floor((padWidth - title.length) / 2));
+  const padRight = Math.max(0, padWidth - title.length - padLeft);
   const wrapped = [];
   body.forEach((ln) => {
     let chunk = ln;
-    while (chunk.length > width) {
-      wrapped.push(chunk.slice(0, width));
-      chunk = chunk.slice(width);
+    while (chunk.length > innerWidth) {
+      wrapped.push(chunk.slice(0, innerWidth));
+      chunk = chunk.slice(innerWidth);
     }
     wrapped.push(chunk);
   });
-  const padLeft = Math.floor((total - title.length) / 2);
-  const padRight = Math.max(0, total - title.length - padLeft);
-  const border = "=".repeat(Math.max(0, padLeft)) + title + "=".repeat(Math.max(0, padRight));
-  const footer = "_".repeat(total);
-  const content = wrapped.map((ln) => `| ${ln.padEnd(width, " ")} |`).join("\n");
+  const padStart = " ".repeat(leftPadSpaces);
+  const padEnd = " ".repeat(rightPadSpaces);
+  const border = `${padStart}${"=".repeat(padLeft)}${title}${"=".repeat(padRight)}${padEnd}`;
+  const footer = `${padStart}${"_".repeat(total)}${padEnd}`;
+  const content = wrapped.map((ln) => `${padStart}| ${ln.padEnd(innerWidth, " ")} |${padEnd}`).join("\n");
   return `${border}\n${content}\n${footer}`;
 }
 
-function buildCoachingBox(text, widthOverride) {
-  return buildBox(text || "evaluation loading...", "== COACH'S CORNER ==", widthOverride);
+function buildCoachingBox(text, widthOverride, alignCenter = false) {
+  const boxWidth = Math.min(widthOverride || maxCols(), COACH_MAX_WIDTH);
+  return buildBox(
+    text || "evaluation loading...",
+    COACH_TITLE,
+    boxWidth,
+    alignCenter ? 0 : 2,
+    alignCenter,
+    alignCenter ? 0 : 2
+  );
 }
 
 function buildCoachSection(text, widthOverride) {
-  return buildCoachingBox(text, widthOverride);
+  const cols = widthOverride || maxCols();
+  const centerCoach = cols < HEADER_FULL_WIDTH;
+  return buildCoachingBox(text, cols, centerCoach);
 }
 
 function renderTable(state) {
   if (!state) return;
-  const cardSym = (c) => {
-    if (!c || c.length !== 2) return "??";
-    return formatCardSymbols([c]);
-  };
-  const b = [
-    cardSym(state.board[0]),
-    cardSym(state.board[1]),
-    cardSym(state.board[2]),
-    cardSym(state.board[3]),
-    cardSym(state.board[4]),
-  ];
-  const tableLines = [
-    "             _________________( BTN )_________________",
-    "            /                  [CHECK]                 \\",
-    "           /                                            \\",
-    "          /                                              \\",
-    "      ( CO )                                            ( SB )",
-    `      [FOLD]       [${b[0]}] [${b[1]}] [${b[2]}]  [${b[3]}] [${b[4]}]            [CHECK]`,
-    `        |                POT: ${state.pot || 0}                           |`,
-    "        |                                                 |",
-    "      ( MP )                                            ( BB )",
-    `      [CALL]                                           [BET ${state.bot_bet || 0}]`,
-    "         \\                                               /",
-    "          \\                                             /",
-    "           \\_________________( UTG )___________________/",
-    `                              [RAISE ${state.hero_bet || 0}]`,
-  ];
-
-  const faceLines = [
-    "     _______",
-    "\\___/_coach_\\___/",
-    "  @/ 0   0   \\@",
-    "  |   ..     |",
-    "  \\   ___   /",
-    "   \\_______/",
-  ];
-  lastTableLines = tableLines;
-  lastFaceLines = faceLines;
+  lastTableLines = buildSixMaxTableLines(state);
+  lastFaceLines = TABLE_FACE;
   lastHandBlock = renderCards(state.hero_hand || [], 2);
   renderScreen();
 }
@@ -328,20 +476,21 @@ function handleServerMessage(msg) {
     case "session_joined":
     case "state_update":
       renderTable(msg.state);
-      setCoaching("evaluation loading...");
+      setCoaching(hasActed ? "evaluation loading..." : "Play a hand to get feedback!");
       break;
     case "hand_summary":
       setInfo(`Hand over (${msg.reason}) — winner: ${msg.winner}`);
       renderTable(msg.state || msg);
       // Reveal bot hand on showdown if available.
       if (msg.bot_hand) {
-        setInfo(`Bot hand: ${formatCardSymbols(msg.bot_hand)}`);
+        setInfo(`~~{ Bot hand: ${formatCardSymbols(msg.bot_hand)} }~~`);
       }
       // Show next hand button if server allows.
       if (msg.can_start_next_hand) {
         nextHandBtn.style.display = "inline-block";
       }
-      setCoaching("evaluation loading...");
+      hasActed = false;
+      setCoaching("Play a hand to get feedback!");
       break;
     case "error":
       setInfo(`Error: ${msg.message || "Server error"}`);
@@ -371,11 +520,30 @@ async function loadSession() {
   try {
     const me = await fetchJson("/auth/me");
     user = me;
-    googleLoginBtn.disabled = true;
+    if (googleLoginBtn) googleLoginBtn.disabled = true;
+    if (logoutBtn) logoutBtn.disabled = false;
+    await fetchWsToken();
+    return;
+  } catch {
+    // no session; try dev login to keep table usable without auth
+  }
+  try {
+    await fetch("/auth/dev-login", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ user_id: "dev-user", email: "dev@example.com", name: "Dev User" }),
+    });
+    const me = await fetchJson("/auth/me");
+    user = me;
+    if (googleLoginBtn) googleLoginBtn.disabled = true;
+    if (logoutBtn) logoutBtn.disabled = false;
     await fetchWsToken();
   } catch {
     user = null;
-    googleLoginBtn.disabled = false;
+    if (googleLoginBtn) googleLoginBtn.disabled = true;
+    if (logoutBtn) logoutBtn.disabled = true;
+    setInfo("Unable to start session.");
   }
 }
 
@@ -415,23 +583,31 @@ function connectWs() {
 
 function sendAction(action, amount = null) {
   const payload = { action, amount, ts: new Date().toISOString() };
+  hasActed = true;
+  setCoaching("evaluation loading...");
   if (ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify(payload));
   }
 }
 
 function wireEvents() {
-  googleLoginBtn.addEventListener("click", () => {
-    window.location.href = "/auth/google/login";
-  });
+  if (googleLoginBtn) {
+    googleLoginBtn.style.display = "none";
+    googleLoginBtn.addEventListener("click", () => {
+      window.location.href = "/auth/google/login";
+    });
+  }
 
-  logoutBtn.addEventListener("click", async () => {
-    await fetch("/auth/logout", { method: "POST", credentials: "include" });
-    user = null;
-    wsToken = null;
-    if (ws) ws.close();
-    await loadSession();
-  });
+  if (logoutBtn) {
+    logoutBtn.style.display = "none";
+    logoutBtn.addEventListener("click", async () => {
+      await fetch("/auth/logout", { method: "POST", credentials: "include" });
+      user = null;
+      wsToken = null;
+      if (ws) ws.close();
+      await loadSession();
+    });
+  }
 
   document.querySelectorAll("[data-action]").forEach((btn) => {
     btn.addEventListener("click", () => {
