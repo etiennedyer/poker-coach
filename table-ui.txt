@@ -1,0 +1,29 @@
+# 6-Max Table ASCII Draft
+
+                              TO CALL: 2
+
+             _________________( BTN )_________________
+            /                  [CHECK]                 \
+           /                                            \
+          /                                              \
+        ( CO )                                          ( SB )
+      [FOLD]       [??] [??] [??]  [??] [??]            [CHECK]
+        |                POT: ---                         |
+        |                                                 |                _______
+      ( MP )                                          ( BB )          \___/_coach_\___/
+      [CALL]                                          [BET 1]          @/  0   0   \@
+         \                                               /             |     ..     |
+          \                   ~YOU~                     /               \    ___   /
+           \_________________( UTG )___________________/                  \_______/
+                            [RAISE 5]                   
+
+   Your hand:                     ================= COACH'S CORNER ===================
+     ___   ___                    | Calling the check is reasonable as the pot is sma |
+    |2♣ | |9♦ |                   | ll and you have a pair, though the board is poten |
+    |___| |___|                   | tially drawing.                                   |
+                                  | Consider betting to apply pressure, but calling i |
+                                  | s acceptable given the current circumstances.     |
+                                  |___________________________________________________|
+                                                       
+                                                       
+                                                      

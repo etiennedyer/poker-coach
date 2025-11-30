@@ -5,10 +5,35 @@ let ws;
 let wsToken = null;
 let user = null;
 let reconnectTimer = null;
-let lastStateText = "";
+const PLACEHOLDER_TABLE = [
+  "             _________________( BTN )_________________",
+  "            /                  [----]                 \\",
+  "           /                                            \\",
+  "          /                                              \\",
+  "        ( CO )                                          ( SB )",
+  "      [----]       [??] [??] [??]  [??] [??]            [----]",
+  "        |                POT: --                         |",
+  "        |                                                 |",
+  "      ( MP )                                          ( BB )",
+  "      [----]                                          [----]",
+  "         \\                                               /",
+  "          \\                                             /",
+  "           \\_________________( UTG )___________________/",
+  "                              [----]",
+].join("\n");
+
+let lastTableBlock = PLACEHOLDER_TABLE;
+let lastHandBlock = null;
 let infoLines = [];
 let coachingText = "evaluation loading...";
-let botBoxText = "awaiting bot action...";
+const COACH_FACE = [
+  "              ______",
+  "          \\___/______\\___/",
+  "          @/  0   0   \\@",
+  "          |     ..     |",
+  "           \\    ___    /",
+  "            \\_______/",
+].join("\n");
 const nextHandBtn = document.getElementById("next-hand");
 const HEADER = [
   "    ____        __                ______                 __  ",
@@ -93,9 +118,9 @@ function renderCards(cards, maxCount = 5) {
   return lines.map((l) => l.trimEnd()).join("\n");
 }
 
-function sideBySide(boxA, boxB, gap = 2) {
-  const left = boxA.split("\n");
-  const right = boxB.split("\n");
+function sideBySide(leftBlock, rightBlock, gap = 2) {
+  const left = leftBlock.split("\n");
+  const right = rightBlock.split("\n");
   const leftWidth = Math.max(...left.map((l) => l.length));
   const rightWidth = Math.max(...right.map((l) => l.length));
   const maxLines = Math.max(left.length, right.length);
@@ -110,12 +135,17 @@ function sideBySide(boxA, boxB, gap = 2) {
 function renderScreen() {
   const sections = [];
   sections.push(HEADER);
-  if (lastStateText) sections.push(lastStateText);
-  if (infoLines.length) sections.push(infoLines.join("\n"));
+  const handBlock = `Your hand:\n${lastHandBlock || renderCards(["??", "??"], 2)}`;
   const totalCols = maxCols();
-  const boxWidth = Math.max(20, Math.floor((totalCols - 4) / 2));
-  const combo = sideBySide(buildBotBox(botBoxText, boxWidth), buildCoachingBox(coachingText, boxWidth));
-  sections.push(combo);
+  const handWidth = handBlock.split("\n").reduce((m, l) => Math.max(m, l.length), 0);
+  const gap = 4;
+  const coachWidth = Math.max(20, totalCols - handWidth - gap);
+  const coachBlock = buildCoachSection(coachingText, coachWidth);
+  const combined = sideBySide(handBlock, coachBlock, gap);
+
+  sections.push(lastTableBlock || PLACEHOLDER_TABLE);
+  if (infoLines.length) sections.push(infoLines.join("\n"));
+  sections.push(combined);
   const text = sections.join("\n\n");
   terminal.textContent = text;
   terminal.scrollTop = terminal.scrollHeight;
@@ -157,32 +187,53 @@ function buildCoachingBox(text, widthOverride) {
   return buildBox(text || "evaluation loading...", "== COACH'S CORNER ==", widthOverride);
 }
 
-function buildBotBox(text, widthOverride) {
-  return buildBox(text || "awaiting bot action...", "== BOT ACTION ==", widthOverride);
+function buildCoachSection(text, widthOverride) {
+  return buildCoachingBox(text, widthOverride);
 }
 
 function renderTable(state) {
   if (!state) return;
-  lastStateText = "";
-  const card = (c) => (c ? c : "??");
-  const pad = (val, width) => {
-    const s = String(val);
-    if (s.length >= width) return s;
-    return s + " ".repeat(width - s.length);
+  const cardSym = (c) => {
+    if (!c || c.length !== 2) return "??";
+    return formatCardSymbols([c]);
   };
-  const board = [card(state.board[0]), card(state.board[1]), card(state.board[2]), card(state.board[3]), card(state.board[4])];
-  const boardVisual = renderCards(board, 5);
-  const handVisual = renderCards(state.hero_hand || [], 2);
-  const lines = [
-    `Hand #${state.hand_id} | Street: ${pad(state.street, 7)} | Pot: ${state.pot} | To act: ${state.to_act || "--"}`,
-    `Hero stack: ${state.hero_stack} | Bet: ${state.hero_bet}`,
-    `Bot stack : ${state.bot_stack} | Bet: ${state.bot_bet}`,
-    "Board:",
-    boardVisual,
-    "Your hand:",
-    handVisual,
+  const b = [
+    cardSym(state.board[0]),
+    cardSym(state.board[1]),
+    cardSym(state.board[2]),
+    cardSym(state.board[3]),
+    cardSym(state.board[4]),
   ];
-  lastStateText = lines.join("\n");
+  const tableLines = [
+    "             _________________( BTN )_________________",
+    "            /                  [CHECK]                 \\",
+    "           /                                            \\",
+    "          /                                              \\",
+    "      ( CO )                                            ( SB )",
+    `      [FOLD]       [${b[0]}] [${b[1]}] [${b[2]}]  [${b[3]}] [${b[4]}]            [CHECK]`,
+    `        |                POT: ${state.pot || 0}                           |`,
+    "        |                                                 |",
+    "      ( MP )                                            ( BB )",
+    `      [CALL]                                           [BET ${state.bot_bet || 0}]`,
+    "         \\                                               /",
+    "          \\                                             /",
+    "           \\_________________( UTG )___________________/",
+    `                              [RAISE ${state.hero_bet || 0}]`,
+  ];
+
+  const faceLines = [
+    "              _______",
+    "         \\___/_coach_\\___/",
+    "           @/ 0   0   \\@",
+    "           |   ..     |",
+    "           \\   ___   /",
+    "            \\_______/",
+  ];
+
+  const handVisual = renderCards(state.hero_hand || [], 2);
+  const tableBlock = sideBySide(tableLines.join("\n"), faceLines.join("\n"), 4);
+  lastTableBlock = tableBlock;
+  lastHandBlock = handVisual;
   renderScreen();
 }
 
@@ -190,11 +241,6 @@ function handleServerMessage(msg) {
   if (!msg || typeof msg !== "object") {
     setInfo(`server: ${JSON.stringify(msg)}`);
     return;
-  }
-
-  if (msg.bot_action && (msg.actor === "bot" || msg.type === "state_update" || msg.type === "bot_action")) {
-    botBoxText = String(msg.bot_action);
-    renderScreen();
   }
 
   switch (msg.type) {
@@ -208,19 +254,13 @@ function handleServerMessage(msg) {
       renderTable(msg.state || msg);
       // Reveal bot hand on showdown if available.
       if (msg.bot_hand) {
-        botBoxText = `Bot hand: ${formatCardSymbols(msg.bot_hand)}`;
+        setInfo(`Bot hand: ${formatCardSymbols(msg.bot_hand)}`);
       }
       // Show next hand button if server allows.
       if (msg.can_start_next_hand) {
         nextHandBtn.style.display = "inline-block";
       }
       setCoaching("evaluation loading...");
-      break;
-    case "bot_action":
-      if (msg.action) {
-        botBoxText = msg.action;
-        renderScreen();
-      }
       break;
     case "error":
       setInfo(`Error: ${msg.message || "Server error"}`);
@@ -235,7 +275,8 @@ function handleServerMessage(msg) {
       if (msg.coaching) setCoaching(`${msg.coaching.assessment || ""}\n${msg.coaching.advice || ""}`);
       break;
     default:
-      setInfo(`server: ${JSON.stringify(msg)}`);
+      // Ignore unknown messages to avoid clutter.
+      break;
   }
 }
 

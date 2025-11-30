@@ -80,17 +80,20 @@ class TableManager:
         self.hero_bet = 0
         self.bot_bet = 0
         if self.street == "preflop":
-            self.board.extend([self.deck.pop(), self.deck.pop(), self.deck.pop()])
+            if len(self.board) < 3:
+                self.board.extend([self.deck.pop(), self.deck.pop(), self.deck.pop()])
             self.street = "flop"
             self.to_act = "hero"
             return None
         elif self.street == "flop":
-            self.board.append(self.deck.pop())
+            if len(self.board) < 4:
+                self.board.append(self.deck.pop())
             self.street = "turn"
             self.to_act = "hero"
             return None
         elif self.street == "turn":
-            self.board.append(self.deck.pop())
+            if len(self.board) < 5:
+                self.board.append(self.deck.pop())
             self.street = "river"
             self.to_act = "hero"
             return None
@@ -191,14 +194,8 @@ class TableManager:
             self.to_act = other
         elif action in ("call", "check"):
             if self.hero_bet == self.bot_bet:
-                if actor == "hero":
-                    # Hero matched; bot still needs to act.
-                    self.to_act = other
-                else:
-                    # Bot matched; move to next street.
-                    summary = self._progress_street()
-                    if summary:
-                        return summary
+                # Move turn to the other actor; street progression handled after bot acts.
+                self.to_act = other
             else:
                 self.to_act = other
         return {"type": "state_update", "state": self.snapshot()}
