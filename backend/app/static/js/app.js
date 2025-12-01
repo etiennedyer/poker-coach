@@ -85,6 +85,7 @@ function buildSixMaxTableLines(state) {
     CO: formatAction("---"),
     SB: formatAction("---"),
     MP: formatAction("---"),
+    BTN: formatAction("---"),
     BB: formatAction(botBet ? `BET ${botBet}` : "CHECK"),
     UTG: formatAction(heroBet ? `BET ${heroBet}` : "CHECK"),
   };
@@ -92,6 +93,7 @@ function buildSixMaxTableLines(state) {
     CO: formatStack(null),
     SB: formatStack(null),
     MP: formatStack(null),
+    BTN: formatStack(null),
     BB: formatStack(botStack),
     UTG: formatStack(heroStack),
   };
@@ -103,15 +105,15 @@ function buildSixMaxTableLines(state) {
   const utgContentWidth = utgLine.length - utgIndent.length;
   return [
     `             _______________${seats.BTN}_______________`,
-    "            /                                      \\",
-    "           /                                        \\",
+    `            /               ${actions.BTN}               \\`,
+    `           /                ${stacks.BTN}                \\`,
     "          /                                          \\",
-    `       ${seats.CO}                                    ${seats.SB}`,
+    `        ${seats.CO}                                     ${seats.SB}`,
     `       ${actions.CO}      ${boardRow}     ${actions.SB}`,
     `       ${stacks.CO}                                    ${stacks.SB}`,
-    `        |                 POT: ${potLabel}                 |`,
+    `        |                   POT: ${potLabel}               |`,
     "        |                                             |",
-    `       ${seats.MP}            TO CALL: ${toCallLabel}        ${seats.BB}`,
+    `       ${seats.MP}            TO CALL: ${toCallLabel}         ${seats.BB}`,
     `       ${actions.MP}                                   ${actions.BB}`,
     `       ${stacks.MP}                                   ${stacks.BB}`,
     "         \\                                           /",

@@ -160,6 +160,10 @@ class TableManager:
             if action in ("bet",) and (amount is None or amount < self.big_blind):
                 return {"type": "error", "message": f"Bet must be at least {self.big_blind}."}
 
+        max_total_bet = actor_bet + actor_stack
+        if action in ("bet", "raise") and amount is not None and amount > max_total_bet:
+            return {"type": "error", "message": f"Cannot {action} more than your stack ({max_total_bet})."}
+
         if action == "fold":
             summary = self._end_hand(winner=other, reason=f"{actor} folded")
             return summary
