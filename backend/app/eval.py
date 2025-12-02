@@ -1,5 +1,9 @@
+import logging
 import random
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
+
+
+log = logging.getLogger(__name__)
 
 
 def _parse_card(card: str) -> Optional[str]:
@@ -9,23 +13,27 @@ def _parse_card(card: str) -> Optional[str]:
     return f"{rank}{suit}"
 
 
-def evaluate_with_pokerkit(hero: List[str], bot: List[str], board: List[str]) -> Optional[str]:
+def evaluate_with_pokerkit(hero: List[str], bot: List[str], board: List[str]) -> Optional[Dict[str, Any]]:
     try:
-        from pokerkit import Card, HandEvaluator
+        from pokerkit import Card, StandardHighHand
     except Exception:
+        log.exception("pokerkit import failed")
         return None
     try:
-        hero_cards = [Card.from_str(c) for c in hero]
-        bot_cards = [Card.from_str(c) for c in bot]
-        board_cards = [Card.from_str(c) for c in board]
-        hero_score = HandEvaluator.evaluate_hand(hero_cards, board_cards)
-        bot_score = HandEvaluator.evaluate_hand(bot_cards, board_cards)
-        if hero_score < bot_score:
-            return "hero"
-        if bot_score < hero_score:
-            return "bot"
-        return "split"
+        hero_cards = tuple(Card.parse("".join(hero)))
+        bot_cards = tuple(Card.parse("".join(bot)))
+        board_cards = tuple(Card.parse("".join(board)))
+        hero_hand = StandardHighHand.from_game(hero_cards, board_cards)
+        bot_hand = StandardHighHand.from_game(bot_cards, board_cards)
+        if hero_hand > bot_hand:
+            winner = "hero"
+        elif bot_hand > hero_hand:
+            winner = "bot"
+        else:
+            winner = "split"
+        return {"winner": winner, "hero_hand": hero_hand, "bot_hand": bot_hand}
     except Exception:
+        log.exception("pokerkit evaluation failed")
         return None
 
 
@@ -34,13 +42,21 @@ def decide_winner(hero: List[str], bot: List[str], board: List[str], rng: random
     bot_cards = [_parse_card(c) for c in bot if _parse_card(c)]
     board_cards = [_parse_card(c) for c in board if _parse_card(c)]
 
-    winner = evaluate_with_pokerkit(hero_cards, bot_cards, board_cards)
-    reason = "pokerkit"
-    if winner is None:
+    result = evaluate_with_pokerkit(hero_cards, bot_cards, board_cards)
+    if result is None:
         winner = "hero" if rng.random() < 0.5 else "bot"
-        reason = "fallback_random"
-    elif winner == "split":
+        return {"winner": winner, "reason": "fallback_random"}
+
+    winner = result["winner"]
+    hero_hand = result["hero_hand"]
+    bot_hand = result["bot_hand"]
+
+    if winner == "hero":
+        reason = str(hero_hand)
+    elif winner == "bot":
+        reason = str(bot_hand)
+    else:
         winner = "hero" if rng.random() < 0.5 else "bot"
-        reason = "split_randomized"
+        reason = f"Tie ({hero_hand.entry.label.value}) — coin flip to {winner}"
 
     return {"winner": winner, "reason": reason}

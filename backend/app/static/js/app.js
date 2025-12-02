@@ -1,10 +1,13 @@
 const terminal = document.getElementById("terminal");
 const googleLoginBtn = document.getElementById("google-login");
 const logoutBtn = document.getElementById("logout");
+const callCheckBtn = document.getElementById("call-check");
 let ws;
 let wsToken = null;
 let user = null;
 let reconnectTimer = null;
+let lastActions = { hero: null, bot: null };
+let lastHandId = null;
 
 const TABLE_FACE = [
   "     _______",
@@ -36,8 +39,9 @@ function formatSeat(label) {
 
 function formatAction(label, width = SEAT_WIDTH - 2) {
   const target = (label || "---").trim() || "---";
-  const clipped = target.slice(0, width);
-  const padTotal = Math.max(0, width - clipped.length);
+  const innerWidth = Math.max(width, target.length);
+  const clipped = target.slice(0, innerWidth);
+  const padTotal = Math.max(0, innerWidth - clipped.length);
   const leftPad = Math.floor(padTotal / 2);
   const rightPad = padTotal - leftPad;
   const inner = `${" ".repeat(leftPad)}${clipped}${" ".repeat(rightPad)}`;
@@ -48,6 +52,70 @@ function formatStack(amount, width = SEAT_WIDTH - 2) {
   if (amount === null || amount === undefined) return formatAction("---", width);
   const raw = `$${amount}`;
   return formatAction(raw, width);
+}
+
+function normalizeActionLabel(raw) {
+  if (!raw || typeof raw !== "string") return null;
+  const withoutActor = raw.replace(/^(hero|bot)\s+/i, "").trim();
+  if (!withoutActor) return null;
+  return withoutActor.toUpperCase();
+}
+
+function rememberAction(actor, action) {
+  const label = normalizeActionLabel(action);
+  if (!actor || !label) return;
+  lastActions[actor] = label;
+}
+
+function syncActionsForState(state, meta = {}) {
+  if (!state) return;
+  if (state.hand_id !== undefined && state.hand_id !== lastHandId) {
+    lastHandId = state.hand_id;
+    lastActions = { hero: null, bot: null };
+  }
+
+  const reason = meta?.reason;
+  if (typeof reason === "string") {
+    const lowerReason = reason.toLowerCase();
+    if (lowerReason.startsWith("hero")) rememberAction("hero", reason);
+    else if (lowerReason.startsWith("bot")) rememberAction("bot", reason);
+  }
+
+  if (meta.actor === "bot" && meta.bot_action) {
+    rememberAction("bot", meta.bot_action);
+  }
+  if (meta.type === "bot_action" && meta.action) {
+    rememberAction("bot", meta.action);
+  }
+
+  if (state.last_action) {
+    const lower = state.last_action.toLowerCase();
+    if (lower.startsWith("hero")) rememberAction("hero", state.last_action);
+    else if (lower.startsWith("bot")) rememberAction("bot", state.last_action);
+  }
+
+  if (!lastActions.hero && state.hero_bet) rememberAction("hero", `BET ${state.hero_bet}`);
+  if (!lastActions.bot && state.bot_bet) rememberAction("bot", `BET ${state.bot_bet}`);
+}
+
+function updateCallCheckButton(state) {
+  if (!callCheckBtn) return;
+  if (!state) {
+    callCheckBtn.textContent = "Check";
+    callCheckBtn.dataset.action = "check";
+    return;
+  }
+  const heroBet = state.hero_bet ?? 0;
+  const botBet = state.bot_bet ?? 0;
+  const currentBet = state.current_bet ?? Math.max(heroBet, botBet);
+  const toCall = Math.max(0, currentBet - (heroBet || 0));
+  if (toCall > 0) {
+    callCheckBtn.textContent = `Call $${toCall}`;
+    callCheckBtn.dataset.action = "call";
+  } else {
+    callCheckBtn.textContent = "Check";
+    callCheckBtn.dataset.action = "check";
+  }
 }
 
 function centerText(text, width) {
@@ -81,13 +149,15 @@ function buildSixMaxTableLines(state) {
     BB: formatSeat("BB BOT"),
     UTG: formatSeat("BTN/SB YOU"),
   };
+  const heroAction = lastActions.hero || (heroBet ? `BET ${heroBet}` : "CHECK");
+  const botAction = lastActions.bot || (botBet ? `BET ${botBet}` : "CHECK");
   const actions = {
     CO: formatAction("---"),
     SB: formatAction("---"),
     MP: formatAction("---"),
     BTN: formatAction("---"),
-    BB: formatAction(botBet ? `BET ${botBet}` : "CHECK"),
-    UTG: formatAction(heroBet ? `BET ${heroBet}` : "CHECK"),
+    BB: formatAction(botAction),
+    UTG: formatAction(heroAction),
   };
   const stacks = {
     CO: formatStack(null),
@@ -461,11 +531,13 @@ function buildCoachSection(text, widthOverride) {
   return buildCoachingBox(text, cols, centerCoach);
 }
 
-function renderTable(state) {
+function renderTable(state, meta = {}) {
   if (!state) return;
+  syncActionsForState(state, meta);
   lastTableLines = buildSixMaxTableLines(state);
   lastFaceLines = TABLE_FACE;
   lastHandBlock = renderCards(state.hero_hand || [], 2);
+  updateCallCheckButton(state);
   renderScreen();
 }
 
@@ -477,20 +549,24 @@ function handleServerMessage(msg) {
 
   switch (msg.type) {
     case "session_joined":
-      renderTable(msg.state);
+      renderTable(msg.state, msg);
       break;
     case "state_update":
       if (lastInfoWasError) setInfo("");
-      renderTable(msg.state);
+      renderTable(msg.state, msg);
       // Keep existing coaching message unless we're explicitly awaiting new advice.
       break;
-    case "hand_summary":
-      setInfo(`Hand over (${msg.reason}) — winner: ${msg.winner}`);
-      renderTable(msg.state || msg);
-      // Reveal bot hand on showdown if available.
-      if (msg.bot_hand) {
-        setInfo(`{ Bot hand: ${formatCardSymbols(msg.bot_hand)} }`);
+    case "hand_summary": {
+      const payout = msg.payout ?? msg.pot;
+      const summaryLines = [`Hand over (${msg.reason}) — ${msg.winner || "unknown"}`];
+      if (payout !== undefined && payout !== null) {
+        summaryLines[0] += ` wins $${payout}`;
       }
+      if (msg.bot_hand) {
+        summaryLines.push(`Bot hand: ${formatCardSymbols(msg.bot_hand)}`);
+      }
+      setInfo(summaryLines.join("\n"));
+      renderTable(msg.state || msg, msg);
       // Show next hand button if server allows.
       if (msg.can_start_next_hand) {
         nextHandBtn.style.display = "inline-block";
@@ -501,6 +577,7 @@ function handleServerMessage(msg) {
         setCoaching("evaluation loading...");
       }
       break;
+    }
     case "error":
       setInfo(`Error: ${msg.message || "Server error"}`);
       awaitingCoaching = false;
@@ -649,6 +726,7 @@ function wireEvents() {
 function bootstrap() {
   wireEvents();
   loadSession();
+  updateCallCheckButton();
   renderScreen();
   window.addEventListener("resize", renderScreen);
 }

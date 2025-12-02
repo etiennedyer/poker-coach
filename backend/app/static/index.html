@@ -8,13 +8,19 @@
 <body>
   <pre id="terminal" aria-live="polite" style="padding: 0 2ch;"></pre>
 
-  <div id="controls" style="text-align: center; margin-top: 8px;">
-    <button data-action="fold">Fold (1)</button>
-    <button data-action="check">Check (2)</button>
-    <button data-action="call">Call (3)</button>
-    <button data-action="bet">Bet/Raise (4)</button>
-    <label for="bet-amount">Amount:</label>
-    <input id="bet-amount" type="number" min="0" step="1" value="4" style="width:60px;" />
+  <div
+    id="controls"
+    style="display:flex; flex-direction:column; align-items:center; gap:6px; margin-top:8px;"
+  >
+    <div style="display:flex; gap:8px;">
+      <button data-action="fold">Fold</button>
+      <button id="call-check" data-action="check">Check / Call</button>
+    </div>
+    <div style="display:flex; gap:6px; align-items:center;">
+      <button data-action="bet">Bet / Raise</button>
+      <label for="bet-amount"></label>
+      <input id="bet-amount" type="number" min="0" step="1" value="4" style="width:60px;" />
+    </div>
     <button id="next-hand" style="display:none;">Next Hand</button>
   </div>
 

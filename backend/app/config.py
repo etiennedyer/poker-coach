@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     db_url: str = ""
     environment: str = "dev"
     openai_api_key: str = ""
-    openai_model: str = "gpt-4o-mini"
+    openai_model: str = "gpt-4o-2024-08-06"
     openai_max_input_tokens: int = 400
     openai_max_output_tokens: int = 200
     openai_daily_token_cap: int = 2000

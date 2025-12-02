@@ -101,6 +101,9 @@ class TableManager:
             return self._resolve_showdown()
 
     def _resolve_showdown(self) -> Dict[str, Any]:
+        # If an all-in happened early, run out the remaining board cards before scoring.
+        while len(self.board) < 5:
+            self.board.append(self.deck.pop())
         result = decide_winner(self.hero_hand, self.bot_hand, self.board, self.rng)
         return self._end_hand(winner=result["winner"], reason=result["reason"])
 
@@ -112,6 +115,7 @@ class TableManager:
         self.pot = 0
 
     def _end_hand(self, winner: str, reason: str) -> Dict[str, Any]:
+        pot_awarded = self.pot
         self.winner = winner
         self.last_action = reason
         self.hand_over = True
@@ -120,6 +124,7 @@ class TableManager:
             "type": "hand_summary",
             "winner": winner,
             "reason": reason,
+            "payout": pot_awarded,
             "board": self.board.copy(),
             "hero_hand": self.hero_hand.copy(),
             "bot_hand": self.bot_hand.copy(),
@@ -161,8 +166,9 @@ class TableManager:
                 return {"type": "error", "message": f"Bet must be at least {self.big_blind}."}
 
         max_total_bet = actor_bet + actor_stack
-        if action in ("bet", "raise") and amount is not None and amount > max_total_bet:
-            return {"type": "error", "message": f"Cannot {action} more than your stack ({max_total_bet})."}
+        if action in ("bet", "raise") and amount is not None:
+            # Allow oversize inputs; we’ll cap the actual contribution to the stack below.
+            amount = min(amount, max_total_bet)
 
         if action == "fold":
             summary = self._end_hand(winner=other, reason=f"{actor} folded")
@@ -197,9 +203,9 @@ class TableManager:
         if action in ("bet", "raise"):
             self.to_act = other
         elif action in ("call", "check"):
-            if self.hero_bet == self.bot_bet:
-                # Move turn to the other actor; street progression handled after bot acts.
-                self.to_act = other
+            # If we were facing a bet and called, set next actor to hero for the next street.
+            if to_call > 0 and self.hero_bet == self.bot_bet:
+                self.to_act = "hero"
             else:
                 self.to_act = other
         return {"type": "state_update", "state": self.snapshot()}
@@ -221,11 +227,24 @@ class TableManager:
                 }
             )
         events.append(res)
+        if res.get("type") == "error":
+            return events
         if res.get("type") == "hand_summary":
             return events
-        if self.hand_over:
-            events.append(self._end_hand(self.winner or "bot", self.last_action or "done"))
-            return events
+
+        # If betting is closed after hero acts, progress immediately before giving bot a turn.
+        if not self.hand_over and self.hero_bet == self.bot_bet and self.to_act == "hero":
+            progress = self._progress_street()
+            if progress:
+                if isinstance(progress, dict):
+                    progress.setdefault("actor", "hero")
+                    events.append(progress)
+                    if progress.get("type") == "hand_summary":
+                        return events
+            else:
+                events.append({"type": "state_update", "state": self.snapshot(), "actor": "hero"})
+            if self.hand_over:
+                return events
 
         # Bot acts if it's their turn and hand still live.
         if self.to_act == "bot" and not self.hand_over:
@@ -248,23 +267,34 @@ class TableManager:
                 bot_event.setdefault("actor", "bot")
                 bot_event.setdefault("bot_action", bot_action_label)
             events.append(bot_event)
+            if bot_event.get("type") == "error":
+                return events
             if bot_event.get("type") == "hand_summary":
                 return events
             if self.hand_over:
-                events.append(self._end_hand(self.winner or "bot", self.last_action or "done"))
                 return events
 
             # If both matched after bot acts, progress street and send update.
-            if self.hero_bet == self.bot_bet:
-                self._progress_street()
-                events.append(
-                    {
-                        "type": "state_update",
-                        "state": self.snapshot(),
-                        "bot_action": bot_action_label,
-                        "actor": "bot",
-                    }
-                )
+            if self.hero_bet == self.bot_bet and self.to_act == "hero":
+                progress = self._progress_street()
+                if progress:
+                    if isinstance(progress, dict):
+                        progress.setdefault("actor", "bot")
+                        progress.setdefault("bot_action", bot_action_label)
+                        events.append(progress)
+                        if progress.get("type") == "hand_summary":
+                            return events
+                else:
+                    events.append(
+                        {
+                            "type": "state_update",
+                            "state": self.snapshot(),
+                            "bot_action": bot_action_label,
+                            "actor": "bot",
+                        }
+                    )
+                if self.hand_over:
+                    return events
             # Emit explicit bot_action event for UI clarity.
             events.append({"type": "bot_action", "action": bot_action_label, "actor": "bot"})
 
