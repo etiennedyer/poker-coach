@@ -1,6 +1,6 @@
-# Poker Coach MVP (Terminal UI)
+# LLM Poker Coach
 
-I'd been learning GTO principles with ChatGPT, but pasting in hands and getting it to evaluate my play was becoming tedious, and I couldn't find any cheap GTO solvers, so I decided to make a bot I could play against with built-in LLM feedback. This is a demo version, doesn't have any actual GTO solving features (nor does the system prompt ask the LLM to give GTO-style feedback).
+I'd been learning GTO principles with ChatGPT, but pasting in hands and getting it to evaluate my play was becoming tedious, and I couldn't find any cheap GTO solvers, so I decided to make a bot I could play against with built-in LLM feedback.
 
 Currently only does heads-up hold 'em, but going to implement 6-max soon.
 
